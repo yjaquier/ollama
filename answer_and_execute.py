@@ -6,7 +6,7 @@ from typing import Any
 from ollama import Client
 from mcp import ClientSession, stdio_client
 from constants import THINK_TO_ANSWER, SERVER_PARAMS
-from BM25_and_embeddings import bm25_score
+from BM25 import bm25_score
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------
 # The Ollama call
@@ -30,64 +30,6 @@ def answer_question(
   - generated SQL must start with SELECT or WITH
   - unsafe SQL keywords are blocked
   """
-  # question_tokens = [t.lower() for t in re.findall(r"[A-Za-z0-9_\.]+", question) if len(t) >= 2] # User's question words of length >=3
-
-  # file_scores = {}
-  # for token in question_tokens:
-  #   for file_path in retrieval_index["keyword_to_files"].get(token, []):
-  #     file_scores[file_path] = file_scores.get(file_path, 0) + 4
-  #   for indexed_term, file_paths in retrieval_index["keyword_to_files"].items():
-  #     if token in indexed_term or indexed_term in token:
-  #       for file_path in file_paths:
-  #         file_scores[file_path] = file_scores.get(file_path, 0) + 1
-
-  # snippet_scores = {}
-  # for token in question_tokens:
-  #   for snippet_id in retrieval_index["keyword_to_snippets"].get(token, []):
-  #     snippet_scores[snippet_id] = snippet_scores.get(snippet_id, 0) + 4
-  #   for indexed_term, snippet_ids in retrieval_index["keyword_to_snippets"].items():
-  #     if token in indexed_term or indexed_term in token:
-  #       for snippet_id in snippet_ids:
-  #         snippet_scores[snippet_id] = snippet_scores.get(snippet_id, 0) + 1
-
-  # file_summaries_by_file = {s["file"]: s for s in file_summaries}
-  # snippet_store_by_id = {s["id"]: s for s in snippet_store}
-
-  # ranked_files = sorted(file_scores.items(), key=lambda x: (-x[1], x[0]))
-  # ranked_snippets = sorted(snippet_scores.items(), key=lambda x: (-x[1], x[0]))
-
-  # # We must limit the number of files and snippets to avoid hitting the token limit of the model, but we want to keep at least some relevant information if possible, so we use a threshold on the scores and not a fixed number
-  # relevant_files = [file_summaries_by_file[file_path] for file_path, _ in ranked_files if file_path in file_summaries_by_file]
-  # relevant_snippets = [snippet_store_by_id[snippet_id] for snippet_id, _ in ranked_snippets if snippet_id in snippet_store_by_id]
-
-  # if not relevant_files:
-  #   relevant_files = file_summaries
-  # if not relevant_snippets:
-  #   relevant_snippets = snippet_store
-
-  # logger.info("Relevant files selected: %s", len(relevant_files))
-  # logger.info("Relevant snippets selected: %s", len(relevant_snippets))
-
-  # logger.info("=== RELEVANT FILES ===")
-  # for item in relevant_files:
-  #   logger.info(f"- {item['file']}")
-
-  # logger.info("=== RELEVANT SQL SNIPPETS ===")
-  # for item in relevant_snippets:
-  #   logger.info(f"- {item['id']} [{item['kind']}] {item['title']}")
-
-  # compact_snippets = []
-  # for snippet in relevant_snippets:
-  #   compact_snippets.append({
-  #     "id": snippet["id"],
-  #     "file": snippet["file"],
-  #     "kind": snippet["kind"],
-  #     "title": snippet["title"],
-  #     "keywords": snippet["keywords"],
-  #     "line_start": snippet["line_start"],
-  #     "line_end": snippet["line_end"]
-  #   })
-
   bm25_score_dict = bm25_score(question, chunks, retriever, 100)
 
   # We need to build a prompt like this with the top-n ranked chunks
@@ -96,9 +38,11 @@ def answer_question(
   # content:
   # the automatic workload repository (awr) is oracle's built-in ...
 
-  logger.info("=== RELEVANT FILES ===")
+  NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT = 5
+  logger.info(f"=== TOP {NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT} RELEVANT FILES ===")
   retrieved_context = ""
-  for item in sorted(bm25_score_dict, key=lambda x: x.get("bm25_score", 0.0), reverse=True)[:10]:
+  sorted_bm25_score_dict = sorted(bm25_score_dict, key=lambda x: x.get("bm25_score", 0.0), reverse=True)
+  for item in sorted_bm25_score_dict[:NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT]:
     logger.info(f"- {item.get('source')}")
     retrieved_context += f"[{item.get('id')}]\nsource: {item.get('source')}\nsection: {" > ".join(item.get('header_path', []))}\ncontent: {item.get('chunk')}\n\n"
 
@@ -121,9 +65,9 @@ Instructions:
   was_cancelled = False
   try:
     response = client.chat(
-      model=ollama_model,
-      think=THINK_TO_ANSWER,
-      messages=[
+      model = ollama_model,
+      think = THINK_TO_ANSWER,
+      messages = [
         {"role": "system", "content": "Answer only from the provided summaries and snippet metadata."},
         {"role": "user", "content": answer_prompt}
       ],
@@ -154,8 +98,7 @@ Instructions:
     "ollama_model": ollama_model,
     "duration_ns": total_duration_ns,
     "was_cancelled": was_cancelled,
-    "relevant_files": bm25_score_dict,
-    "relevant_snippets": bm25_score_dict,
+    "relevant_files": sorted_bm25_score_dict[:NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT]
   }
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------

@@ -3,11 +3,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 from ollama import Client
-from constants import CACHE_DIR
-from parse_markdown_files import build_or_update_cache
 from answer_and_execute import answer_question, execute_sqlcl_mcp, show_snippet
 
-from BM25_and_embeddings import chunks_from_markdown_files, bm25_retriever_from_chunks
+from BM25 import chunks_from_markdown_files, bm25_retriever_from_chunks
 
 
 class KnowledgeService:

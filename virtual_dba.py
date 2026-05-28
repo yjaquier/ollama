@@ -5,8 +5,7 @@ import io
 import queue
 import threading
 import streamlit as st
-
-from constants import DEFAULT_MAX_FILE_CHARS, LOG_FILE, OLLAMA_MODEL, OLLAMA_MODEL_LIST, DEFAULT_ACTIVE_CONNECTION_NAME, ORACLE_SKILLS
+from constants import LOG_FILE, OLLAMA_MODEL, OLLAMA_MODEL_LIST, DEFAULT_ACTIVE_CONNECTION_NAME, ORACLE_SKILLS
 from services import KnowledgeService, SqlService
 
 # =============================================================================
@@ -230,33 +229,25 @@ with st.sidebar:
 
   st.divider()
   st.header("Cache control")
-  col1, col2 = st.columns(2)
-  with col2:
-    rebuild_cache = st.checkbox("Force rebuild cache", value = False, disabled = st.session_state.is_busy)
-  with col1:
-    if st.button("Load cache", disabled = st.session_state.is_busy):
-      try:
-        docs_root = Path(docs_root_str).resolve()
-        with st.spinner("Loading cache..."):
-          st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
-          # st.session_state.cache_key = (
-          #     str(docs_root),
-          #     bool(rebuild_cache),
-          #     int(DEFAULT_MAX_FILE_CHARS),
-          # )
-        st.success("Cache loaded successfully.")
-      except Exception as exc:
-        LOGGER.exception("Failed to load cache: %s", exc)
-        st.error(f"Failed to load cache: {exc}")
+  if st.button("Rebuild cache", disabled = st.session_state.is_busy):
+    try:
+      docs_root = Path(docs_root_str).resolve()
+      with st.spinner("Generating chunks and BM25..."):
+        st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
+        st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
+      st.success("Chunks and BM25 generated successfully.")
+    except Exception as exc:
+      LOGGER.exception(f"Failed to load cache: {exc}")
+      st.error(f"Failed to load cache: {exc}")
 
   st.divider()
   st.header("Chat control")
-  col3, col4 = st.columns(2)
-  with col3:
+  col1, col2 = st.columns(2)
+  with col1:
     if st.button("Clear history", disabled = st.session_state.is_busy):
       st.session_state.messages = []
       st.rerun()
-  with col4:
+  with col2:
     if st.button("Cancel Request", disabled = not(st.session_state.is_busy)):
       LOGGER.info("Clicked on 'Cancel Request'")
       st.session_state.cancel_requested = True
@@ -265,30 +256,12 @@ with st.sidebar:
         stop_event.set()
 
   st.divider()
-  # st.markdown("**Prompt examples**")
   st.header("Prompt examples")
   st.code('How to generate an AWR report in HTML format ?', language="text")
   st.code('execute("SELECT * FROM DBA_HIST_SNAPSHOT")', language="text")
   st.code('execute("SELECT * FROM v$session")', language="text")
   st.code('show_snippet("performance\\awr-reports.md::snippet_6")', language="text")
 
-# =============================================================================
-# Initialization of chunks and BM25 retriever
-# =============================================================================
-docs_root = Path(docs_root_str).resolve()
-
-# if st.session_state.cache_data is None or st.session_state.cache_key != current_cache_key:
-if st.session_state.chunks is None or st.session_state.retriever is None:
-  try:
-    with st.spinner("Loading cache..."):
-      st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
-      st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
-      LOGGER.info("Initialization complete from docs root: %s", docs_root)
-    # st.session_state.cache_key = current_cache_key
-  except Exception as exc:
-    LOGGER.exception("Failed to auto-load cache: %s", exc)
-    st.error(f"Failed to load cache: {exc}")
-    st.stop()
 
 
 # =============================================================================
@@ -323,10 +296,11 @@ for message in st.session_state.messages:
       answer = content.get("answer")
       if answer is not None:
         st.markdown(answer)
-      # st.markdown("**Retrieval Log**")
-      # with st.expander("Relevant files", expanded=False):
-      #   for item in content.get("relevant_files", []):
-      #     st.write(f"{item['source']} ({item['header_path']})")
+      st.markdown("**Retrieval Log**")
+      with st.expander("Relevant files", expanded=False):
+        for item in content.get("relevant_files", []):
+          st.write(f"File: {item['source']}, Section: {"".join(x for x in [" > ".join(item.get("header_path",""))])}")
+          # st.write(f"File: {item['source']}, Section: ({item['header_path']})")
       # with st.expander("Relevant snippets", expanded=False):
       #   for item in content.get("relevant_snippets", []):
       #     st.write(f"- {item['id']} ({item['title']})")
@@ -451,3 +425,20 @@ if st.session_state.is_busy and st.session_state.queued_question:
     # st.session_state.cancel_requested = False
     # This last rerun is MANDATORY by design of Streamlit that does not reprocess the widget if you change the value of disable variable
     st.rerun()
+
+# =============================================================================
+# Initialization of chunks and BM25 retriever
+# =============================================================================
+if st.session_state.chunks is None or st.session_state.retriever is None:
+  try:
+    docs_root = Path(docs_root_str).resolve()
+    LOGGER.info(f"Initialization started from docs root: {docs_root}")
+    with st.spinner("Generating chunks and BM25..."):
+      st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
+      st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
+      LOGGER.info(f"Initialization complete from docs root: {docs_root}")
+    # st.session_state.cache_key = current_cache_key
+  except Exception as exc:
+    LOGGER.exception(f"Failed to auto-load cache: {exc}")
+    st.error(f"Failed to load cache: {exc}")
+    st.stop()
