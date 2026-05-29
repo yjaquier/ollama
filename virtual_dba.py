@@ -94,10 +94,7 @@ init_session_state()
 # =============================================================================
 def run_rag_in_thread(question: str, ollama_model: str, chunks, retriever, q: queue.Queue, stop_event: threading.Event):
   def on_chunk(full_text: str, last_chunk: str):
-    q.put({
-      "type": "chunk",
-      "full_text": full_text,
-    })
+    q.put({ "type": "chunk", "full_text": full_text })
 
   def is_cancel_requested() -> bool:
     return stop_event.is_set()
@@ -109,18 +106,12 @@ def run_rag_in_thread(question: str, ollama_model: str, chunks, retriever, q: qu
       chunks = chunks,
       retriever = retriever,
       on_chunk = on_chunk,
-      is_cancel_requested=is_cancel_requested,
+      is_cancel_requested = is_cancel_requested,
     )
-    q.put({
-      "type": "done",
-      "response": response,
-    })
+    q.put({ "type": "done", "response": response })
   except Exception as exc:
-    LOGGER.exception("RAG worker failed: %s", exc)
-    q.put({
-      "type": "error",
-      "error": str(exc),
-    })
+    LOGGER.exception(f"RAG worker failed: {exc}")
+    q.put({ "type": "error", "error": str(exc) })
 
 def start_rag_request(question: str) -> None:
   q = queue.Queue()
@@ -193,6 +184,8 @@ def drain_rag_queue() -> None:
       clear_rag_state()
       st.session_state.rag_finished = True
 
+# Not sure the st.fragment feature is robust as I randomly got plenty of:
+# The fragment with id xxxxx does not exist anymore - it might have been removed during a preceding full-app rerun.
 @st.fragment(run_every="1s")
 def rag_live_refresh():
   drain_rag_queue()
