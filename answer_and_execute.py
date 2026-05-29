@@ -57,7 +57,6 @@ Instructions:
 - Answer in Markdown
 - Answer using only the retrieved context above.
 - If the context does not fully answer the question, say what is missing.
-- Cite factual claims inline using [DOC_ID | source | section].
 """.strip()
 
   full_response = ""

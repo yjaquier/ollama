@@ -193,7 +193,7 @@ def drain_rag_queue() -> None:
       clear_rag_state()
       st.session_state.rag_finished = True
 
-@st.fragment(run_every="500ms")
+@st.fragment(run_every="1s")
 def rag_live_refresh():
   drain_rag_queue()
 
@@ -220,12 +220,13 @@ st.caption("Ask questions on your markdown SQL knowledge base, execute SQL, or i
 with st.sidebar:
   st.header("Configuration")
 
-  # for model in OLLAMA_MODEL_LIST:
-  st.session_state.ollama_model = st.selectbox(label = "Which model to use?", options = OLLAMA_MODEL_LIST, index = OLLAMA_MODEL_LIST.index(OLLAMA_MODEL) if OLLAMA_MODEL in OLLAMA_MODEL_LIST else 0)
+  current_model_index = OLLAMA_MODEL_LIST.index(st.session_state.ollama_model) if st.session_state.ollama_model in OLLAMA_MODEL_LIST else 0
+  
+  st.session_state.ollama_model = st.selectbox(label = "Which model to use?", options = OLLAMA_MODEL_LIST, index = current_model_index, disabled = st.session_state.is_busy)
 
-  docs_root_str = st.text_input("Skills root folder", value = ORACLE_SKILLS)
+  docs_root_str = st.text_input("Skills root folder", value = ORACLE_SKILLS, disabled=st.session_state.is_busy)
 
-  connection_name = st.text_input("SQLcl connection name", value = st.session_state.active_connection_name)
+  connection_name = st.text_input("SQLcl connection name", value = st.session_state.active_connection_name, disabled=st.session_state.is_busy)
 
   st.divider()
   st.header("Cache control")
@@ -248,7 +249,7 @@ with st.sidebar:
       st.session_state.messages = []
       st.rerun()
   with col2:
-    if st.button("Cancel Request", disabled = not(st.session_state.is_busy)):
+    if st.button("Cancel Request", disabled = not(st.session_state.rag_running)):
       LOGGER.info("Clicked on 'Cancel Request'")
       st.session_state.cancel_requested = True
       stop_event = st.session_state.get("rag_stop_event")
@@ -260,8 +261,24 @@ with st.sidebar:
   st.code('How to generate an AWR report in HTML format ?', language="text")
   st.code('execute("SELECT * FROM DBA_HIST_SNAPSHOT")', language="text")
   st.code('execute("SELECT * FROM v$session")', language="text")
-  st.code('show_snippet("performance\\awr-reports.md::snippet_6")', language="text")
+  # st.code('show_snippet("performance\\awr-reports.md::snippet_6")', language="text")
 
+# =============================================================================
+# Initialization of chunks and BM25 retriever
+# =============================================================================
+if st.session_state.chunks is None or st.session_state.retriever is None:
+  try:
+    docs_root = Path(docs_root_str).resolve()
+    LOGGER.info(f"Initialization started from docs root: {docs_root}")
+    with st.spinner("Generating chunks and BM25..."):
+      st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
+      st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
+      LOGGER.info(f"Initialization complete from docs root: {docs_root}")
+    # st.session_state.cache_key = current_cache_key
+  except Exception as exc:
+    LOGGER.exception(f"Failed to auto-load cache: {exc}")
+    st.error(f"Failed to load cache: {exc}")
+    st.stop()
 
 
 # =============================================================================
@@ -273,7 +290,7 @@ with st.sidebar:
 # message template in {"role": "assistant", "message_type": "markdown | rag | csv | sql | ...", "content": "the content"}
 # Then content template is:
 #   markdown: str
-#   rag: {"answer": full_response, "ollama_model": ollama_model, "duration_ns": total_duration_ns, "relevant_files": relevant_files, "relevant_snippets": relevant_snippets}
+#   rag: {"answer": full_response, "ollama_model": ollama_model, "duration_ns": total_duration_ns, "was_cancelled": True | False, "relevant_files": relevant_files}
 #   csv: str
 #   sql: str
 # 
@@ -293,21 +310,17 @@ for message in st.session_state.messages:
       else:
         st.markdown(content)
     elif isinstance(content, dict): #rag
-      answer = content.get("answer")
-      if answer is not None:
+      answer = content.get("answer", "")
+      was_cancelled = content.get("was_cancelled", False)
+      if answer is not None and not was_cancelled:
         st.markdown(answer)
-      st.markdown("**Retrieval Log**")
-      with st.expander("Relevant files", expanded=False):
-        for item in content.get("relevant_files", []):
-          st.write(f"File: {item['source']}, Section: {"".join(x for x in [" > ".join(item.get("header_path",""))])}")
-          # st.write(f"File: {item['source']}, Section: ({item['header_path']})")
-      # with st.expander("Relevant snippets", expanded=False):
-      #   for item in content.get("relevant_snippets", []):
-      #     st.write(f"- {item['id']} ({item['title']})")
+        st.markdown("**Retrieval Log**")
+        with st.expander("Relevant files", expanded=False):
+          for item in content.get("relevant_files", []):
+            st.write(f"File: {item['source']}, Section: {" > ".join(item.get("header_path", [])) if isinstance(item.get("header_path", []), list) else str(item.get("header_path", []))}")
       duration_ns = content.get("duration_ns")
       ollama_model = content.get("ollama_model")
       if duration_ns is not None and ollama_model is not None:
-        # st.caption(f"Total duration in seconds: {float(duration_ns) / 1e9:.2f}s")
         st.caption(f"Generated with {ollama_model} in {float(duration_ns) / 1e9:.2f} seconds")
     else:
       st.markdown(str(content)) # Desperate case or role = "user"
@@ -333,13 +346,9 @@ def queue_question() -> None:
   st.session_state.cancel_requested = False
   st.session_state.chat_input_value = ""
   
-# question = st.chat_input(placeholder='Ask your question, or use execute("...") / show_snippet("...")', disabled = st.session_state.is_busy)
-
-# if st.session_state.is_busy:
-#   st.info("Processing request... please wait.")
-
 st.chat_input(
-  placeholder='Ask your question, or use execute("...") / show_snippet("...")',
+  # placeholder='Ask your question, or use execute("...") / show_snippet("...")',
+  placeholder='Ask your question, or use execute("...")',
   key="chat_input_value",
   on_submit=queue_question,
   disabled=st.session_state.is_busy
@@ -353,11 +362,6 @@ if st.session_state.is_busy and st.session_state.queued_question:
 
   st.session_state.messages.append({"role": "user", "content": question})
 
-  # with st.chat_message("user"):
-  #   st.markdown(question)
-
-  # with st.chat_message("assistant"):
-  # with st.spinner(f"Generating answer with {st.session_state.ollama_model}..."):
   try:
     if question.lower().startswith("execute("): # Execute a SQL case
       with st.spinner("Executing SQL..."):
@@ -366,79 +370,24 @@ if st.session_state.is_busy and st.session_state.queued_question:
         df = pd.read_csv(io.StringIO(str(response).strip()))
         st.dataframe(df, width = 'stretch')
         st.session_state.messages.append({"role": "assistant", "message_type": "csv", "content": response})
-    elif question.lower().startswith("show_snippet("): # Show a snippet case
-      with st.spinner("Loading snippet..."):
-        response = knowledge_service.handle_show_snippet_command(question = question, cache_data = st.session_state.cache_data)
-      if response:
-        st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "message_type": "markdown", "content": response})
+      st.session_state.is_busy = False
+      # st.rerun()
+    # elif question.lower().startswith("show_snippet("): # Show a snippet case
+    #   with st.spinner("Loading snippet..."):
+    #     response = knowledge_service.handle_show_snippet_command(question = question, cache_data = st.session_state.cache_data)
+    #   if response:
+    #     st.markdown(response)
+    #     st.session_state.messages.append({"role": "assistant", "message_type": "markdown", "content": response})
     else: # Normal "RAG" question so accessing the Ollama model
-      # message_placeholder = st.empty()
-      # duration_placeholder = st.empty()
-
-      # # Note for self: The cancel button cannot be located here for Streamlit way of working reason...
-      # # if message_placeholder.button("Cancel Request", key="cancel_request_button"):
-      # #   LOGGER.info("Clicked on 'Cancel Request'")
-      # #   st.session_state.cancel_requested = True
-
-      # # Callback function To get model response chunk by chunk (Stream = True)
-      # def on_chunk(full_text: str, last_chunk: str):
-      #   message_placeholder.markdown(full_text + "▌")
-
-      # # Callback function to cancel the request
-      # def is_cancel_requested() -> bool:
-      #   # LOGGER.info(f"Value of cancel_requested: {bool(st.session_state.get('cancel_requested', False))}")
-      #   # return bool(st.session_state.get("cancel_requested", False) or st.session_state.get("cancel_resquested", False))
-      #   return bool(st.session_state.get("cancel_requested", False))
-      
-      # response = knowledge_service.handle_question(ollama_model = st.session_state.ollama_model, question = question, cache_data = st.session_state.cache_data, on_chunk = on_chunk, is_cancel_requested = is_cancel_requested)
-
-      # if response:
-      #   # st.markdown(response["answer"])
-      #   if response.get("answer"):
-      #     message_placeholder.markdown(response["answer"])
-      #   if response.get("duration_ns"):
-      #     duration_placeholder.caption(f"Generated with {st.session_state.ollama_model} in {response['duration_ns'] / 1e9:.2f} seconds")
-
-      #   st.markdown("**Retrieval Log**")
-      #   with st.expander("Relevant files", expanded=False):
-      #     for item in response.get("relevant_files", []):
-      #       st.write(f"{item['file']} ({item['title']})")
-      #   with st.expander("Relevant snippets", expanded=False):
-      #     for item in response.get("relevant_snippets", []):
-      #       st.write(f"- {item['id']} ({item['title']})")
-
-      #   # st.caption(f"Generated with {st.session_state.ollama_model} in {response['duration_ns'] / 1e9:.2f} seconds")
-
-      #   st.session_state.messages.append({"role": "assistant", "message_type": "rag", "content": response})
       start_rag_request(question)
+      # st.rerun()
 
   except Exception as exc:
     error_message = f"Error while processing request: {exc}"
     LOGGER.exception(error_message)
-    st.session_state.messages.append({"role": "assistant", "content": error_message})
+    st.session_state.messages.append({"role": "assistant", "message_type": "markdown", "content": error_message})
     st.session_state.is_busy = False
-    st.rerun()
+    # st.rerun()
   finally:
-    # st.session_state.queued_question = None
-    # st.session_state.is_busy = False
-    # st.session_state.cancel_requested = False
-    # This last rerun is MANDATORY by design of Streamlit that does not reprocess the widget if you change the value of disable variable
     st.rerun()
 
-# =============================================================================
-# Initialization of chunks and BM25 retriever
-# =============================================================================
-if st.session_state.chunks is None or st.session_state.retriever is None:
-  try:
-    docs_root = Path(docs_root_str).resolve()
-    LOGGER.info(f"Initialization started from docs root: {docs_root}")
-    with st.spinner("Generating chunks and BM25..."):
-      st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
-      st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
-      LOGGER.info(f"Initialization complete from docs root: {docs_root}")
-    # st.session_state.cache_key = current_cache_key
-  except Exception as exc:
-    LOGGER.exception(f"Failed to auto-load cache: {exc}")
-    st.error(f"Failed to load cache: {exc}")
-    st.stop()

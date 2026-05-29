@@ -20,7 +20,7 @@ MARKDOWN_LANGUAGE = "english"
 # SNIPPET_STORE_FILE = CACHE_DIR / "snippet_store.json"
 # GLOBAL_SUMMARY_FILE = CACHE_DIR / "global_summary.json"
 # RETRIEVAL_INDEX_FILE = CACHE_DIR / "retrieval_index.json"
-# LOG_FILE = CACHE_DIR / "agent.log"
+LOG_FILE = "agent.log"
 
 # Create server parameters for stdio connection
 # There are two missing options is my opinion, so far, for SQLcl MCP server:
