@@ -1,2 +1,10 @@
 ollama
 streamlit
+langchain-text-splitters
+bm25s[core]
+PyStemmer
+sentence-transformers
+mcp
+tiktoken
+faiss-cpu
+ipywidgets # To remove the error on porgress bar in Juoyter Notebook
