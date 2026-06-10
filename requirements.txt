@@ -7,4 +7,4 @@ sentence-transformers
 mcp
 tiktoken
 faiss-cpu
-ipywidgets # To remove the error on porgress bar in Juoyter Notebook
+ipywidgets # To remove the error on progress bar in Jupyter Notebook
