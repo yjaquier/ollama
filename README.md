@@ -33,3 +33,11 @@ Finally run the Virtual DBA applcaition with:
 ```bash
 streamlit run virtual_dba.py
 ```
+
+## Side notes
+
+I have created a "release 1" version of the Virtual DBA application that only do a BM25 to rank the chunks (based on user query).
+
+Release 2 include the embeddings scoring system and the Reciprocal Rank Fusion (RRF) system to club the two ranking systems into one.
+
+I might go with a third release with Knowledge Graph and evaluate if splitting code and text from markdown files is providing interesting results...
