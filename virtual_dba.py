@@ -67,6 +67,7 @@ def init_session_state() -> None:
     # "cache_key": None,
     "chunks": None, # List of chunkcs of all markdown files
     "retriever": None, # The BM25 retriever
+    "embeddings": None, # The list of all embeddings for all chunks
     "ollama_model": OLLAMA_MODEL,
     "cancel_requested": False,
     "active_connection_name": DEFAULT_ACTIVE_CONNECTION_NAME,
@@ -92,7 +93,7 @@ init_session_state()
 # Or due to the native way of working of Streamlit when you click the "Cancel Request" buton the information does not go along the current running instance?
 # So the need of threading to share information between threads.
 # =============================================================================
-def run_rag_in_thread(question: str, ollama_model: str, chunks, retriever, q: queue.Queue, stop_event: threading.Event):
+def run_rag_in_thread(question: str, ollama_model: str, chunks, retriever, embeddings, q: queue.Queue, stop_event: threading.Event):
   def on_chunk(full_text: str, last_chunk: str):
     q.put({ "type": "chunk", "full_text": full_text })
 
@@ -105,6 +106,7 @@ def run_rag_in_thread(question: str, ollama_model: str, chunks, retriever, q: qu
       question = question,
       chunks = chunks,
       retriever = retriever,
+      embeddings = embeddings,
       on_chunk = on_chunk,
       is_cancel_requested = is_cancel_requested,
     )
@@ -132,6 +134,7 @@ def start_rag_request(question: str) -> None:
       st.session_state.ollama_model,
       st.session_state.chunks,
       st.session_state.retriever,
+      st.session_state.embeddings,
       q,
       stop_event,
     ),
@@ -226,7 +229,7 @@ with st.sidebar:
   if st.button("Rebuild cache", disabled = st.session_state.is_busy):
     try:
       docs_root = Path(docs_root_str).resolve()
-      with st.spinner("Generating chunks and BM25..."):
+      with st.spinner("Generating chunks, BM25 and embeddings..."):
         st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
         st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
       st.success("Chunks and BM25 generated successfully.")
@@ -257,15 +260,16 @@ with st.sidebar:
   # st.code('show_snippet("performance\\awr-reports.md::snippet_6")', language="text")
 
 # =============================================================================
-# Initialization of chunks and BM25 retriever
+# Initialization of chunks, BM25 retriever, and embeddings
 # =============================================================================
-if st.session_state.chunks is None or st.session_state.retriever is None:
+if st.session_state.chunks is None or st.session_state.retriever is None or st.session_state.embeddings is None:
   try:
     docs_root = Path(docs_root_str).resolve()
     LOGGER.info(f"Initialization started from docs root: {docs_root}")
-    with st.spinner("Generating chunks and BM25..."):
+    with st.spinner("Generating chunks, BM25 and embeddings..."):
       st.session_state.chunks = knowledge_service.initialize_chunks(docs_root)
       st.session_state.retriever = knowledge_service.bm25_retriever_from_chunks(st.session_state.chunks)
+      st.session_state.embeddings = knowledge_service.compute_embedding_from_chunks(st.session_state.chunks)
       LOGGER.info(f"Initialization complete from docs root: {docs_root}")
     # st.session_state.cache_key = current_cache_key
   except Exception as exc:

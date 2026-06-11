@@ -8,3 +8,4 @@ mcp
 tiktoken
 faiss-cpu
 ipywidgets # To remove the error on progress bar in Jupyter Notebook
+torchvision # Not directly required but a dependency is apparently missing

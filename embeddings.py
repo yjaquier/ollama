@@ -1,4 +1,3 @@
-from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 
 EMBEDDING_MODEL = SentenceTransformer(model_name_or_path = "sentence-transformers/all-MiniLM-L6-v2")

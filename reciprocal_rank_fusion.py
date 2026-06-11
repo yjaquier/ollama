@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 def reciprocal_rank_fusion(bm25_results, embedding_results, k = 60, id_key = "id", bm25_key = "bm25_score", embedding_key = "embedding_score"):
   """
   Compute Reciprocal Rank Fusion (RRF) score for a set of documents based on their ranks in two different scoring systems (BM25 and embedding similarity).

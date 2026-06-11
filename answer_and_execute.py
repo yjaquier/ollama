@@ -7,6 +7,8 @@ from ollama import Client
 from mcp import ClientSession, stdio_client
 from constants import THINK_TO_ANSWER, SERVER_PARAMS
 from BM25 import bm25_score
+from embeddings import embedding_score
+from reciprocal_rank_fusion import reciprocal_rank_fusion
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------
 # The Ollama call
@@ -17,6 +19,7 @@ def answer_question(
   question: str,
   chunks: list,
   retriever: Any,
+  embeddings: list,
   logger: logging.Logger,
   on_chunk = None,
   is_cancel_requested = None
@@ -31,18 +34,13 @@ def answer_question(
   - unsafe SQL keywords are blocked
   """
   bm25_score_dict = bm25_score(question, chunks, retriever, 100)
-
-  # We need to build a prompt like this with the top-n ranked chunks
-  # source: skills-main/db/performance/awr-reports.md
-  # section: awr reports — automatic workload repository > overview
-  # content:
-  # the automatic workload repository (awr) is oracle's built-in ...
+  embedding_score_dict = embedding_score(question, embeddings, chunks)
+  rrf_results = reciprocal_rank_fusion(bm25_score_dict, embedding_score_dict, k = 60) # It comes already sorted (see function definition)
 
   NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT = 5
   logger.info(f"=== TOP {NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT} RELEVANT FILES ===")
   retrieved_context = ""
-  sorted_bm25_score_dict = sorted(bm25_score_dict, key=lambda x: x.get("bm25_score", 0.0), reverse=True)
-  for item in sorted_bm25_score_dict[:NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT]:
+  for item in rrf_results[:NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT]:
     logger.info(f"- {item.get('source')}")
     retrieved_context += f"[{item.get('id')}]\nsource: {item.get('source')}\nsection: {" > ".join(item.get('header_path', []))}\ncontent: {item.get('chunk')}\n\n"
 
@@ -97,7 +95,7 @@ Instructions:
     "ollama_model": ollama_model,
     "duration_ns": total_duration_ns,
     "was_cancelled": was_cancelled,
-    "relevant_files": sorted_bm25_score_dict[:NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT]
+    "relevant_files": rrf_results[:NUMBER_OF_CHUNK_TO_INCLUDE_IN_PROMPT]
   }
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------

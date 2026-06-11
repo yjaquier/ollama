@@ -6,6 +6,7 @@ from ollama import Client
 from answer_and_execute import answer_question, execute_sqlcl_mcp, show_snippet
 
 from BM25 import chunks_from_markdown_files, bm25_retriever_from_chunks
+from embeddings import compute_embedding_from_chunks
 
 
 class KnowledgeService:
@@ -41,7 +42,11 @@ class KnowledgeService:
     self.logger.info("Initializing BM25 retriever from chunks")
     return bm25_retriever_from_chunks(chunks)
   
-  def handle_question(self, ollama_model: str, question: str, chunks, retriever, on_chunk = None, is_cancel_requested = None):
+  def compute_embedding_from_chunks(self, chunks):
+    self.logger.info("Computing embeddings from chunks")
+    return compute_embedding_from_chunks(chunks)
+  
+  def handle_question(self, ollama_model: str, question: str, chunks, retriever, embeddings, on_chunk = None, is_cancel_requested = None):
 
     self.logger.info("Question: %s", question)
     self.logger.info(f"Selected Ollama model: {ollama_model}")
@@ -52,6 +57,7 @@ class KnowledgeService:
       question = question,
       chunks = chunks,
       retriever = retriever,
+      embeddings = embeddings,
       logger = self.logger,
       on_chunk = on_chunk,
       is_cancel_requested = is_cancel_requested
